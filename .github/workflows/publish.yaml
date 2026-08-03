@@ -1,0 +1,44 @@
+name: Publish
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  # Never publish an artifact that has not passed the full test matrix.
+  tests:
+    uses: ./.github/workflows/tests.yaml
+    permissions:
+      contents: read
+      # tests.yaml declares pull-requests: write (for the PR coverage comment);
+      # a called reusable workflow cannot request permissions the caller job
+      # did not grant, so it must be granted here even though the coverage
+      # step never runs on release events
+      pull-requests: write
+
+  publish:
+    needs: tests
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      # required for PyPI trusted publishing (OIDC); no long-lived token needed
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.6"
+      - name: Build
+        run: uv build
+      - name: Publish
+        run: uv publish
