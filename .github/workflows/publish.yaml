@@ -29,7 +29,7 @@ jobs:
       # required for PyPI trusted publishing (OIDC); no long-lived token needed
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
