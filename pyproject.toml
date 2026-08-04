@@ -31,7 +31,7 @@ Source = "https://github.com/asynq-io/httpxic"
 
 [project.optional-dependencies]
 opentelemetry = [
-    "opentelemetry-instrumentation-httpx>=0.62b0",
+    "opentelemetry-instrumentation-httpx>=0.65b0",
 ]
 
 [dependency-groups]
