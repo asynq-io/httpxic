@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.28.1",
-    "pydantic>=2.13.2",
+    "pydantic>=2.13.4",
     "typing-extensions>=4.16.0",
 ]
 
