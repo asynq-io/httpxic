@@ -4,16 +4,11 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
-    from ssl import SSLContext
 
-    from httpx import URL, AsyncBaseTransport, Limits
-    from httpx._client import UseClientDefault
-    from httpx._types import (
+    from httpx2._client import UseClientDefault
+    from httpx2._types import (
         AuthTypes,
-        CertTypes,
-        CookieTypes,
         HeaderTypes,
-        ProxyTypes,
         QueryParamTypes,
         RequestContent,
         RequestData,
@@ -25,28 +20,6 @@ if TYPE_CHECKING:
     from pydantic.main import IncEx
 
 
-class ClientOptions(TypedDict, total=False):
-    auth: AuthTypes | None
-    params: QueryParamTypes | None
-    headers: HeaderTypes | None
-    cookies: CookieTypes | None
-    verify: SSLContext | str | bool
-    cert: CertTypes | None
-    http1: bool
-    http2: bool
-    proxy: ProxyTypes | None
-    mounts: Mapping[str, AsyncBaseTransport | None] | None
-    timeout: TimeoutTypes
-    follow_redirects: bool
-    limits: Limits
-    max_redirects: int
-    event_hooks: Mapping[str, list[Callable[..., Any]]] | None
-    base_url: URL | str
-    transport: AsyncBaseTransport | None
-    trust_env: bool
-    default_encoding: str | Callable[[bytes], str]
-
-
 class RequestOptions(TypedDict, total=False):
     content: RequestContent | None
     data: RequestData | None
@@ -54,6 +27,26 @@ class RequestOptions(TypedDict, total=False):
     json: Any | None
     params: QueryParamTypes | None
     headers: HeaderTypes | None
+    auth: AuthTypes | UseClientDefault | None
+    follow_redirects: bool
+    timeout: TimeoutTypes
+    extensions: RequestExtensions | None
+
+
+class EndpointOptions(TypedDict, total=False):
+    """Request options an endpoint adds to every call.
+
+    ``headers`` and ``params`` may also be zero-argument callables, evaluated on
+    every call (e.g. to read a ``ContextVar``); they are merged under the
+    endpoint's ``Header()`` and ``Query()`` parameters, which win on conflicts.
+    A ``Content-Type`` header
+    decides how a ``Body()`` parameter is encoded: JSON media types
+    (``application/json``, ``*/*+json``, the default) are JSON-encoded, any
+    other media type is sent as is.
+    """
+
+    headers: Mapping[str, str] | Callable[[], Mapping[str, str]]
+    params: Mapping[str, Any] | Callable[[], Mapping[str, Any]]
     auth: AuthTypes | UseClientDefault | None
     follow_redirects: bool
     timeout: TimeoutTypes

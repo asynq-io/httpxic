@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 __all__ = [
-    "ClientClosedError",
     "EmptyResponseError",
     "HttpxicError",
 ]
@@ -20,19 +19,4 @@ class EmptyResponseError(HttpxicError):
         super().__init__(
             f"{endpoint}: received an empty response body with status {status_code}, "
             f"but the declared return type does not allow None"
-        )
-
-
-class ClientClosedError(HttpxicError, RuntimeError):
-    """Raised when an already closed client is re-entered instead of recreated.
-
-    Also a ``RuntimeError``, so handlers written before this class existed keep
-    catching it.
-    """
-
-    def __init__(self, client_name: str) -> None:
-        self.client_name = client_name
-        super().__init__(
-            f"{client_name} has already been closed, "
-            f"create a new instance instead of reusing it"
         )

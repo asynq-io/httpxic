@@ -1,23 +1,24 @@
 from importlib.metadata import version
 
-from .client import APIClient
+from httpx2 import ServerSentEvent
+
+from .client import APIClient, ClientT
 from .decorators import delete, get, head, options, patch, post, put, sse
-from .events import ServerSentEvent, aiter_sse
-from .exceptions import ClientClosedError, EmptyResponseError, HttpxicError
+from .exceptions import EmptyResponseError, HttpxicError
 from .params import Body, Cookie, File, Form, Header, Param, Path, Query
-from .types import ClientOptions, DecodeOptions, EncodeOptions, RequestOptions
+from .types import DecodeOptions, EncodeOptions, EndpointOptions, RequestOptions
 
 __version__ = version("httpxic")
 
 __all__ = [
     "APIClient",
     "Body",
-    "ClientClosedError",
-    "ClientOptions",
+    "ClientT",
     "Cookie",
     "DecodeOptions",
     "EmptyResponseError",
     "EncodeOptions",
+    "EndpointOptions",
     "File",
     "Form",
     "Header",
@@ -28,7 +29,6 @@ __all__ = [
     "RequestOptions",
     "ServerSentEvent",
     "__version__",
-    "aiter_sse",
     "delete",
     "get",
     "head",

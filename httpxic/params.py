@@ -83,7 +83,7 @@ class Path(Param):
 
 
 class Body(_Marker):
-    """Marker for the JSON-encoded request body."""
+    """Marker for the request body, encoded as the endpoint's ``content_type``."""
 
     __slots__ = ()
 

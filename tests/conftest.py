@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import inspect
+from collections.abc import AsyncIterable
+from typing import TYPE_CHECKING, Any, TypeVar
 
-import httpx
+import httpx2
 import pytest
 import respx
 from pydantic import BaseModel
 
-from httpxic import APIClient, delete, get, patch, post, put
+from httpxic import APIClient, ClientT, delete, get, patch, post, put
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator, Awaitable, Iterable, Iterator
+
+T = TypeVar("T")
 
 
 class User(BaseModel):
@@ -26,24 +30,24 @@ class UpdateUser(BaseModel):
     email: str | None = None
 
 
-class DemoClient(APIClient):
+class DemoClient(APIClient[ClientT]):
     @get("/users/{user_id}")
-    async def retrieve_user(self, user_id: int) -> User: ...
+    def retrieve_user(self, user_id: int) -> User: ...
 
     @get("/users")
-    async def list_users(self) -> list[User]: ...
+    def list_users(self) -> list[User]: ...
 
     @post("/users")
-    async def create_user(self, data: CreateUser) -> User: ...
+    def create_user(self, data: CreateUser) -> User: ...
 
     @put("/users/{user_id}")
-    async def replace_user(self, data: CreateUser, user_id: int) -> User: ...
+    def replace_user(self, data: CreateUser, user_id: int) -> User: ...
 
     @patch("/users/{user_id}")
-    async def update_user(self, data: UpdateUser, user_id: int) -> User: ...
+    def update_user(self, data: UpdateUser, user_id: int) -> User: ...
 
     @delete("/users/{user_id}")
-    async def delete_user(self, user_id: int) -> None: ...
+    def delete_user(self, user_id: int) -> None: ...
 
 
 @pytest.fixture(scope="session")
@@ -58,11 +62,38 @@ def base_url() -> str:
 
 @pytest.fixture
 def respx_mock(base_url: str) -> Iterator[respx.MockRouter]:
-    with respx.mock(base_url=base_url, assert_all_called=False) as router:
+    with respx.mock(
+        base_url=base_url, assert_all_called=False, using="httpcore2"
+    ) as router:
         yield router
 
 
+@pytest.fixture(params=["sync", "async"])
+async def http(
+    request: pytest.FixtureRequest, base_url: str
+) -> AsyncIterator[httpx2.Client | httpx2.AsyncClient]:
+    if request.param == "sync":
+        with httpx2.Client(base_url=base_url) as sync_http:
+            yield sync_http
+    else:
+        async with httpx2.AsyncClient(base_url=base_url) as async_http:
+            yield async_http
+
+
 @pytest.fixture
-async def client(base_url: str) -> AsyncIterator[DemoClient]:
-    async with httpx.AsyncClient(base_url=base_url) as http:
-        yield DemoClient(http)
+def client(http: httpx2.Client | httpx2.AsyncClient) -> DemoClient[Any]:
+    return DemoClient(http)
+
+
+async def resolve(value: T | Awaitable[T]) -> T:
+    """Await ``value`` when an async client produced it, return it otherwise."""
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def collect(events: Iterable[T] | AsyncIterable[T]) -> list[T]:
+    """Drain a sync or async event iterator into a list."""
+    if isinstance(events, AsyncIterable):
+        return [event async for event in events]
+    return list(events)

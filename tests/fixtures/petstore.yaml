@@ -1,0 +1,337 @@
+openapi: 3.1.0
+info:
+  title: pet store
+  version: "1.0"
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List all pets
+      parameters:
+        - name: page-size
+          in: query
+          schema: {type: integer}
+        - name: status
+          in: query
+          schema: {type: string, enum: [available, sold]}
+        - name: tags
+          in: query
+          schema: {type: array, items: {type: string}}
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema: {type: string}
+        - name: session
+          in: cookie
+          schema: {type: string}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: "#/components/schemas/pet"}}
+    post:
+      operationId: createPet
+      requestBody:
+        $ref: "#/components/requestBodies/NewPet"
+      responses:
+        201:
+          $ref: "#/components/responses/PetResponse"
+  /pets/{pet-id}:
+    parameters:
+      - $ref: "#/components/parameters/PetId"
+    get:
+      operationId: getPet
+      summary: "Find pet ''' \"\"\" \nimport os"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json; charset=utf-8:
+              schema: {$ref: "#/components/schemas/pet"}
+    delete:
+      operationId: deletePet
+      responses:
+        "204": {description: deleted}
+    patch:
+      operationId: request
+      requestBody:
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: {type: boolean}
+  /pets/{pet-id}/photo:
+    get:
+      responses:
+        "200":
+          description: raw
+          content:
+            image/png: {}
+    post:
+      operationId: uploadRaw
+      parameters:
+        - name: caption
+          in: query
+          schema: {type: string}
+      requestBody:
+        content:
+          application/octet-stream:
+            schema: {type: string, format: binary}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/pet"}
+    put:
+      operationId: uploadPhoto
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                caption: {type: string}
+                file: {type: string, format: binary}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {}
+  /login:
+    post:
+      operationId: login
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: {$ref: "#/components/schemas/Credentials"}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {type: object}
+  /events:
+    get:
+      operationId: streamEvents
+      responses:
+        "200":
+          description: stream
+          content:
+            text/event-stream:
+              schema: {$ref: "#/components/schemas/pet"}
+    post:
+      operationId: streamRaw
+      requestBody:
+        content:
+          application/json:
+            schema: {type: [string, "null"]}
+      responses:
+        "200":
+          description: stream
+          content:
+            text/event-stream:
+              schema: {type: string}
+  /events/typed:
+    get:
+      operationId: streamTyped
+      responses:
+        "200":
+          description: stream
+          content:
+            text/event-stream:
+              itemSchema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    contentMediaType: application/json
+                    contentSchema: {$ref: "#/components/schemas/Tick"}
+  /health:
+    get:
+      operationId: listPets
+      responses:
+        default: {description: anything}
+    head:
+      operationId: get
+      responses:
+        "200": {description: ok}
+    options:
+      operationId: model_cfg
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Field"}
+  /skipped:
+    get:
+      operationId: bodyOnGet
+      requestBody:
+        content:
+          application/json:
+            schema: {type: string}
+      responses: {}
+    post:
+      operationId: emptyBody
+      requestBody:
+        content: {}
+      responses: {}
+    put:
+      operationId: eventsOnPut
+      responses:
+        "200":
+          description: stream
+          content:
+            text/event-stream: {}
+    patch:
+      operationId: badFormField
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                first-name: {type: string}
+      responses: {}
+    delete:
+      operationId: deepObjectFilter
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          schema: {type: object}
+      responses: {}
+    options:
+      operationId: objectQuery
+      parameters:
+        - name: filter
+          in: query
+          schema: {$ref: "#/components/schemas/pet"}
+      responses: {}
+    head:
+      operationId: externalRef
+      parameters:
+        - $ref: "other.yaml#/Param"
+      responses: {}
+    trace:
+      operationId: traceIt
+      responses: {}
+  /skipped/more:
+    get:
+      operationId: danglingRef
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Missing"}
+    post:
+      operationId: nestedFormField
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                owner: {type: object}
+      responses: {}
+    put:
+      operationId: keywordFormField
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                from: {type: string}
+      responses: {}
+    patch:
+      operationId: querystringParam
+      parameters:
+        - name: q
+          in: querystring
+          schema: {type: string}
+      responses: {}
+  /version:
+    get:
+      operationId: 2-version
+      parameters:
+        - name: from
+          in: query
+          schema: {$ref: "#/components/schemas/pet/properties/tags"}
+        - name: limit
+          in: query
+          required: true
+          schema: {type: integer, nullable: true}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/vnd.api+json:
+              schema: {type: [string, integer]}
+  /skipped/form:
+    post:
+      operationId: selfFormField
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                self: {type: string}
+      responses: {}
+components:
+  parameters:
+    PetId:
+      name: pet-id
+      in: path
+      required: true
+      schema: {type: integer}
+  requestBodies:
+    NewPet:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/pet"
+  responses:
+    PetResponse:
+      description: created
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/pet"}
+  schemas:
+    pet:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        pet-type: {type: string}
+        tags: {type: array, items: {type: string}}
+    Credentials:
+      type: object
+      required: [username, pin]
+      properties:
+        username: {type: string}
+        pin: {type: string}
+    Tick:
+      type: object
+      properties:
+        n: {type: integer}
+    Field:
+      type: string
+      enum: [x]

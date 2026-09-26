@@ -1,0 +1,68 @@
+{#- Every string that comes from the spec is rendered through `literal`. -#}
+{% macro optional(p) -%}
+{{ p.annotation }}{{ " | None" if not p.required and not p.annotation.endswith(" | None") }}
+{%- endmacro %}
+{% macro param(p) -%}
+{% if p.marker is none -%}
+{{ p.name }}: {{ p.annotation }}
+{%- else -%}
+{{ p.name }}: Annotated[{{ optional(p) }}, {{ p.marker }}({% for key, value in p.options.items() %}{{ ", " if not loop.first }}{{ key }}={{ value | literal }}{% endfor %})]{{ " = None" if not p.required }}
+{%- endif %}
+{%- endmacro %}
+{% macro field(p) -%}
+{{ p.name }}: {{ optional(p) }}
+{%- if p.options %} = Field({{ "default=None, " if not p.required }}alias={{ p.options.alias | literal }})
+{%- elif not p.required %} = None
+{%- endif %}
+{%- endmacro %}
+{% macro signature(op) -%}
+self
+{%- for p in op.positional %}, {{ param(p) }}{% endfor %}
+{%- if op.keyword %}, *{% for p in op.keyword %}, {{ param(p) }}{% endfor %}{% endif %}
+{%- endmacro %}
+{% macro import_from(module, names) -%}
+{% if names | length == 1 -%}
+from {{ module }} import {{ names[0] }}
+{%- else -%}
+from {{ module }} import (
+{% for name in names %}
+    {{ name }},
+{% endfor %}
+)
+{%- endif %}
+{%- endmacro %}
+{{ header }}
+{% for group in import_groups %}
+{% if not loop.first %}
+
+{% endif %}
+{% for module, names in group %}
+{{ import_from(module, names) }}
+{% endfor %}
+{% endfor %}
+{% for model in filters %}
+
+
+class {{ model.name }}({{ model.bases | join(", ") }}):
+{% for p in model.fields %}
+    {{ field(p) }}
+{% else %}
+    pass
+{% endfor %}
+{% endfor %}
+
+
+class {{ class_name }}(APIClient[ClientT]):
+{% for op in operations %}
+{% if not loop.first %}
+
+{% endif %}
+{% if op.reason is defined %}
+    # skipped {{ op.label | literal }}: {{ op.reason }}
+{% else %}
+    @{{ op.decorator }}({{ op.path | literal }}{% for key, value in op.options.items() %}, {{ key }}={{ value | literal }}{% endfor %})
+    def {{ op.name }}({{ signature(op) }}) -> {{ op.returns }}: ...
+{% endif %}
+{% else %}
+    pass
+{% endfor %}

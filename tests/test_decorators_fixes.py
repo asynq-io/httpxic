@@ -6,12 +6,14 @@ import warnings
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Union
 
 import httpx
+import httpx2
 import pytest
 from pydantic import BaseModel
 
 from httpxic import (
     APIClient,
     Body,
+    ClientT,
     Cookie,
     EmptyResponseError,
     File,
@@ -30,10 +32,9 @@ from httpxic.decorators import (
     _ResolvedParam,
     _serializer_options,
 )
+from tests.conftest import resolve
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     import respx
 
 pytestmark = pytest.mark.anyio
@@ -53,95 +54,91 @@ class Weird(Query):
     kind: ClassVar[str] = "weird"
 
 
-class FixClient(APIClient):
+class FixClient(APIClient[ClientT]):
     @post("/form")
-    async def submit_form(
+    def submit_form(
         self,
         name: Annotated[str, Form()],
         age: Annotated[int, Form()],
     ) -> None: ...
 
     @post("/upload")
-    async def upload(
+    def upload(
         self,
         meta: Annotated[str, Form()],
         payload: Annotated[bytes, File()],
     ) -> None: ...
 
     @post("/form-optional")
-    async def submit_optional_form(
+    def submit_optional_form(
         self,
         name: Annotated[str, Form()],
         nick: Annotated[str | None, Form()] = None,
     ) -> None: ...
 
     @post("/upload-optional")
-    async def upload_optional_file(
+    def upload_optional_file(
         self,
         meta: Annotated[str, Form()],
         payload: Annotated[bytes | None, File()] = None,
     ) -> None: ...
 
     @post("/trigger")
-    async def trigger(self, job_id: Annotated[int, Query()]) -> None: ...
+    def trigger(self, job_id: Annotated[int, Query()]) -> None: ...
 
     @get("/req")
-    async def req_query(self, q: Annotated[str, Query()]) -> dict: ...
+    def req_query(self, q: Annotated[str, Query()]) -> dict: ...
 
     @get("/enum-query")
-    async def enum_query(self, c: Annotated[Color, Query()]) -> dict: ...
+    def enum_query(self, c: Annotated[Color, Query()]) -> dict: ...
 
     @get("/enum-query-list")
-    async def enum_query_list(self, c: Annotated[list[Color], Query()]) -> dict: ...
+    def enum_query_list(self, c: Annotated[list[Color], Query()]) -> dict: ...
 
     @get("/enum-header")
-    async def enum_header(
-        self, c: Annotated[Color, Header(alias="X-Color")]
-    ) -> dict: ...
+    def enum_header(self, c: Annotated[Color, Header(alias="X-Color")]) -> dict: ...
 
     @get("/p/{uid}")
-    async def path_enum(self, uid: Color) -> dict: ...
+    def path_enum(self, uid: Color) -> dict: ...
 
     @get("/p/{uid}")
-    async def path_str(self, uid: str) -> dict: ...
+    def path_str(self, uid: str) -> dict: ...
 
     @get("/unknown/{uid}")
-    async def unknown(self, uid: int) -> dict: ...
+    def unknown(self, uid: int) -> dict: ...
 
     @get("/kwonly/{uid}")
-    async def kwonly(self, uid: int, *, a: Annotated[int, Query()] = 0) -> dict: ...
+    def kwonly(self, uid: int, *, a: Annotated[int, Query()] = 0) -> dict: ...
 
     @get("/var/{uid}")
-    async def with_var_kwargs(self, uid: int, **extra: Any) -> dict: ...
+    def with_var_kwargs(self, uid: int, **extra: Any) -> dict: ...
 
     @get("/raw")
-    async def raw(self) -> httpx.Response: ...
+    def raw(self) -> httpx2.Response: ...
 
     @get("/item")
-    async def strict_item(self) -> Item: ...
+    def strict_item(self) -> Item: ...
 
     @get("/maybe")
-    async def maybe_item(self) -> Item | None: ...
+    def maybe_item(self) -> Item | None: ...
 
     @get("/slow", timeout=2.5)
-    async def slow(self) -> dict: ...
+    def slow(self) -> dict: ...
 
-    @get("/slow-obj", timeout=httpx.Timeout(1.0))
-    async def slow_obj(self) -> dict: ...
+    @get("/slow-obj", timeout=httpx2.Timeout(1.0))
+    def slow_obj(self) -> dict: ...
 
     @get("/implicit")
-    async def implicit_query(self, q: str = "default") -> dict: ...
+    def implicit_query(self, q: str = "default") -> dict: ...
 
     @get("/doc-meta")
-    async def doc_meta_query(self, q: Annotated[str, "docs"] = "x") -> dict: ...
+    def doc_meta_query(self, q: Annotated[str, "docs"] = "x") -> dict: ...
 
     @get("/cookie")
-    async def with_cookie(
-        self, sid: Annotated[str, Cookie(alias="session")]
-    ) -> dict: ...
+    def with_cookie(self, sid: Annotated[str, Cookie(alias="session")]) -> dict: ...
 
     @get("/cookies")
-    async def with_cookies(
+    def with_cookies(
         self,
         sid: Annotated[str, Cookie(alias="session")],
         theme: Annotated[str, Cookie()],
@@ -150,42 +147,41 @@ class FixClient(APIClient):
     ) -> dict: ...
 
     @get("/cookie-header")
-    async def cookie_plus_cookie_header(
+    def cookie_plus_cookie_header(
         self,
         sid: Annotated[str, Cookie(alias="session")],
         raw: Annotated[str, Header(alias="cookie")],
     ) -> dict: ...
 
     @get("/bad-cookie-name")
-    async def with_bad_cookie_name(
+    def with_bad_cookie_name(
         self, v: Annotated[str, Cookie(alias="bad name")]
     ) -> dict: ...
 
     @post("/override-content-type")
-    async def override_content_type(
+    def override_content_type(
         self,
         data: Annotated[dict, Body()],
         content_type: Annotated[str, Header(alias="content-type")],
     ) -> None: ...
 
     @post("/cookie-body")
-    async def cookie_with_json_body(
+    def cookie_with_json_body(
         self,
         data: Annotated[dict, Body()],
         sid: Annotated[str, Cookie(alias="session")],
     ) -> None: ...
 
     @post("/untyped")
-    async def untyped_body(self, data) -> None: ...
+    def untyped_body(self, data) -> None: ...
 
     @get("/ignored")
-    async def ignored_body(self) -> None: ...
+    def ignored_body(self) -> None: ...
 
 
 @pytest.fixture
-async def fix_client(base_url: str) -> AsyncIterator[FixClient]:
-    async with httpx.AsyncClient(base_url=base_url) as http:
-        yield FixClient(http)
+def fix_client(http: httpx2.Client | httpx2.AsyncClient) -> FixClient[Any]:
+    return FixClient(http)
 
 
 # --- issue 1: explicit Body() plus an unannotated param is ambiguous ---------
@@ -194,19 +190,17 @@ async def fix_client(base_url: str) -> AsyncIterator[FixClient]:
 def test_explicit_body_plus_unannotated_param_raises() -> None:
     with pytest.raises(TypeError, match="ambiguous"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @post("/x")
-            async def f(
-                self, data: Annotated[dict, Body()], flag: str = "on"
-            ) -> None: ...
+            def f(self, data: Annotated[dict, Body()], flag: str = "on") -> None: ...
 
 
 def test_two_explicit_body_params_raise() -> None:
     with pytest.raises(TypeError, match="ambiguous"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @post("/x")
-            async def f(
+            def f(
                 self,
                 data: Annotated[dict, Body()],
                 other: Annotated[dict, Body()],
@@ -216,9 +210,9 @@ def test_two_explicit_body_params_raise() -> None:
 def test_body_combined_with_form_raises() -> None:
     with pytest.raises(TypeError, match="cannot be combined"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @post("/x")
-            async def f(
+            def f(
                 self,
                 data: Annotated[dict, Body()],
                 field: Annotated[str, Form()],
@@ -233,7 +227,7 @@ async def test_multiple_form_fields_are_all_sent(
 ) -> None:
     route = respx_mock.post("/form").mock(return_value=httpx.Response(204))
 
-    await fix_client.submit_form(name="x", age=3)
+    await resolve(fix_client.submit_form(name="x", age=3))
 
     request = route.calls.last.request
     assert request.headers["content-type"] == "application/x-www-form-urlencoded"
@@ -248,7 +242,7 @@ async def test_form_and_file_are_sent_together(
 ) -> None:
     route = respx_mock.post("/upload").mock(return_value=httpx.Response(204))
 
-    await fix_client.upload(meta="m", payload=b"data")
+    await resolve(fix_client.upload(meta="m", payload=b"data"))
 
     request = route.calls.last.request
     assert request.headers["content-type"].startswith("multipart/form-data")
@@ -263,7 +257,7 @@ async def test_none_form_field_is_skipped(
 ) -> None:
     route = respx_mock.post("/form-optional").mock(return_value=httpx.Response(204))
 
-    await fix_client.submit_optional_form(name="x")
+    await resolve(fix_client.submit_optional_form(name="x"))
 
     assert route.calls.last.request.content == b"name=x"
 
@@ -273,7 +267,7 @@ async def test_none_file_field_is_skipped(
 ) -> None:
     route = respx_mock.post("/upload-optional").mock(return_value=httpx.Response(204))
 
-    await fix_client.upload_optional_file(meta="m")
+    await resolve(fix_client.upload_optional_file(meta="m"))
 
     request = route.calls.last.request
     assert request.headers["content-type"] == "application/x-www-form-urlencoded"
@@ -286,25 +280,25 @@ async def test_none_file_field_is_skipped(
 def test_body_marker_on_get_raises_at_definition_time() -> None:
     with pytest.raises(TypeError, match=r"BadClient\.search: body .*body-supporting"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @get("/search")
-            async def search(self, data: Annotated[dict, Body()]) -> dict: ...
+            def search(self, data: Annotated[dict, Body()]) -> dict: ...
 
 
 def test_form_marker_on_get_raises_at_definition_time() -> None:
     with pytest.raises(TypeError, match=r"BadClient\.search: form .*body-supporting"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @get("/search")
-            async def search(self, data: Annotated[str, Form()]) -> dict: ...
+            def search(self, data: Annotated[str, Form()]) -> dict: ...
 
 
 def test_file_marker_on_get_raises_at_definition_time() -> None:
     with pytest.raises(TypeError, match=r"BadClient\.search: file .*body-supporting"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @get("/search")
-            async def search(self, data: Annotated[bytes, File()]) -> dict: ...
+            def search(self, data: Annotated[bytes, File()]) -> dict: ...
 
 
 def test_unsupported_marker_kind_raises_at_definition_time() -> None:
@@ -314,9 +308,9 @@ def test_unsupported_marker_kind_raises_at_definition_time() -> None:
         r"supported kinds are body, cookie, file, form, header, path, query",
     ):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @get("/search")
-            async def search(self, q: Annotated[str, Weird()]) -> dict: ...
+            def search(self, q: Annotated[str, Weird()]) -> dict: ...
 
 
 def test_path_marker_without_placeholder_raises_at_definition_time() -> None:
@@ -326,9 +320,9 @@ def test_path_marker_without_placeholder_raises_at_definition_time() -> None:
         r"placeholder in the URL",
     ):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @get("/static")
-            async def search(self, uid: Annotated[int, Path()]) -> dict: ...
+            def search(self, uid: Annotated[int, Path()]) -> dict: ...
 
 
 # --- issue 5: required non-path params must raise ---------------------------
@@ -340,7 +334,7 @@ async def test_missing_required_query_param_raises(
     respx_mock.get("/req").mock(return_value=httpx.Response(200, json={}))
 
     with pytest.raises(TypeError, match="q"):
-        await fix_client.req_query()  # type: ignore[call-arg]
+        await resolve(fix_client.req_query())  # type: ignore[call-arg]
 
 
 # --- issue 6: unknown/surplus/duplicate arguments must raise ----------------
@@ -348,24 +342,24 @@ async def test_missing_required_query_param_raises(
 
 async def test_unknown_keyword_argument_raises(fix_client: FixClient) -> None:
     with pytest.raises(TypeError, match="typoo"):
-        await fix_client.unknown(uid=1, typoo=2)  # type: ignore[call-arg]
+        await resolve(fix_client.unknown(uid=1, typoo=2))  # type: ignore[call-arg]
 
 
 async def test_surplus_positional_argument_raises(fix_client: FixClient) -> None:
     with pytest.raises(TypeError, match="too many positional arguments"):
-        await fix_client.unknown(1, 99)  # type: ignore[call-arg]
+        await resolve(fix_client.unknown(1, 99))  # type: ignore[call-arg]
 
 
 async def test_positional_cannot_fill_keyword_only_param(
     fix_client: FixClient,
 ) -> None:
     with pytest.raises(TypeError, match="too many positional arguments"):
-        await fix_client.kwonly(1, 2)  # type: ignore[misc]
+        await resolve(fix_client.kwonly(1, 2))  # type: ignore[misc]
 
 
 async def test_duplicate_argument_raises(fix_client: FixClient) -> None:
     with pytest.raises(TypeError, match="multiple values"):
-        await fix_client.unknown(1, uid=2)  # type: ignore[misc]
+        await resolve(fix_client.unknown(1, uid=2))  # type: ignore[misc]
 
 
 async def test_keyword_only_param_is_sent(
@@ -373,7 +367,7 @@ async def test_keyword_only_param_is_sent(
 ) -> None:
     route = respx_mock.get("/kwonly/1").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.kwonly(1, a=5)
+    await resolve(fix_client.kwonly(1, a=5))
 
     assert route.calls.last.request.url.params["a"] == "5"
 
@@ -383,7 +377,7 @@ async def test_var_kwargs_are_excluded_from_request(
 ) -> None:
     route = respx_mock.get("/var/1").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.with_var_kwargs(uid=1, anything="ignored")
+    await resolve(fix_client.with_var_kwargs(uid=1, anything="ignored"))
 
     assert not route.calls.last.request.url.params
 
@@ -398,7 +392,7 @@ async def test_enum_path_value_uses_enum_value(
         return_value=httpx.Response(200, json={})
     )
 
-    await fix_client.path_enum(uid=Color.RED)
+    await resolve(fix_client.path_enum(uid=Color.RED))
 
     assert route.calls.last.request.url.raw_path == b"/p/red"
 
@@ -423,7 +417,7 @@ async def test_path_values_are_percent_encoded(
         return_value=httpx.Response(200, json={})
     )
 
-    await fix_client.path_str(uid=value)
+    await resolve(fix_client.path_str(uid=value))
 
     assert route.calls.last.request.url.raw_path == expected
 
@@ -441,7 +435,7 @@ async def test_enum_query_value_serializes_to_its_value(
         return_value=httpx.Response(200, json={})
     )
 
-    await fix_client.enum_query(c=Color.RED)
+    await resolve(fix_client.enum_query(c=Color.RED))
 
     assert route.calls.last.request.url.params["c"] == "red"
 
@@ -453,7 +447,7 @@ async def test_enum_list_query_values_serialize_to_their_values(
         return_value=httpx.Response(200, json={})
     )
 
-    await fix_client.enum_query_list(c=[Color.RED, Color.BLUE])
+    await resolve(fix_client.enum_query_list(c=[Color.RED, Color.BLUE]))
 
     assert route.calls.last.request.url.params.get_list("c") == ["red", "blue"]
 
@@ -465,7 +459,7 @@ async def test_enum_header_value_serializes_to_its_value(
         return_value=httpx.Response(200, json={})
     )
 
-    await fix_client.enum_header(c=Color.BLUE)
+    await resolve(fix_client.enum_header(c=Color.BLUE))
 
     assert route.calls.last.request.headers["X-Color"] == "blue"
 
@@ -484,7 +478,7 @@ async def test_post_without_body_param_sends_no_body(
 ) -> None:
     route = respx_mock.post("/trigger").mock(return_value=httpx.Response(204))
 
-    await fix_client.trigger(job_id=1)
+    await resolve(fix_client.trigger(job_id=1))
 
     request = route.calls.last.request
     assert request.content == b""
@@ -501,7 +495,7 @@ async def test_empty_body_raises_for_non_optional_return(
     respx_mock.get("/item").mock(return_value=httpx.Response(204))
 
     with pytest.raises(EmptyResponseError) as exc_info:
-        await fix_client.strict_item()
+        await resolve(fix_client.strict_item())
 
     error = exc_info.value
     assert isinstance(error, HttpxicError)
@@ -516,18 +510,18 @@ async def test_empty_body_returns_none_for_optional_return(
 ) -> None:
     respx_mock.get("/maybe").mock(return_value=httpx.Response(204))
 
-    assert await fix_client.maybe_item() is None
+    assert await resolve(fix_client.maybe_item()) is None
 
 
 def test_missing_return_annotation_raises_at_definition_time() -> None:
     with pytest.raises(TypeError, match="missing return annotation"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @get("/x")
-            async def f(self): ...
+            def f(self): ...
 
 
-# --- issue 14: timeout is delegated to httpx --------------------------------
+# --- issue 14: timeout is delegated to httpx2 -------------------------------
 
 
 async def test_timeout_is_passed_to_httpx(
@@ -535,7 +529,7 @@ async def test_timeout_is_passed_to_httpx(
 ) -> None:
     route = respx_mock.get("/slow").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.slow()
+    await resolve(fix_client.slow())
 
     assert route.calls.last.request.extensions["timeout"] == {
         "connect": 2.5,
@@ -550,7 +544,7 @@ async def test_timeout_object_is_passed_to_httpx(
 ) -> None:
     route = respx_mock.get("/slow-obj").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.slow_obj()
+    await resolve(fix_client.slow_obj())
 
     assert route.calls.last.request.extensions["timeout"] == {
         "connect": 1.0,
@@ -568,9 +562,9 @@ async def test_raw_response_return_type_bypasses_adapter(
 ) -> None:
     respx_mock.get("/raw").mock(return_value=httpx.Response(200, text="not json"))
 
-    response = await fix_client.raw()
+    response = await resolve(fix_client.raw())
 
-    assert isinstance(response, httpx.Response)
+    assert isinstance(response, httpx2.Response)
     assert response.text == "not json"
 
 
@@ -609,7 +603,7 @@ async def test_unannotated_param_defaults_to_query(
 ) -> None:
     route = respx_mock.get("/implicit").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.implicit_query()
+    await resolve(fix_client.implicit_query())
 
     assert route.calls.last.request.url.params["q"] == "default"
 
@@ -619,7 +613,7 @@ async def test_annotated_without_marker_metadata_defaults_to_query(
 ) -> None:
     route = respx_mock.get("/doc-meta").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.doc_meta_query()
+    await resolve(fix_client.doc_meta_query())
 
     assert route.calls.last.request.url.params["q"] == "x"
 
@@ -642,7 +636,7 @@ async def test_cookie_marker_sends_with_alias(
 ) -> None:
     route = respx_mock.get("/cookie").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.with_cookie(sid="abc")
+    await resolve(fix_client.with_cookie(sid="abc"))
 
     assert route.calls.last.request.headers["cookie"] == "session=abc"
 
@@ -654,7 +648,7 @@ async def test_cookie_marker_does_not_warn_about_per_request_cookies(
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
-        await fix_client.with_cookie(sid="abc")
+        await resolve(fix_client.with_cookie(sid="abc"))
 
     assert "cookie" in route.calls.last.request.headers
 
@@ -664,7 +658,7 @@ async def test_multiple_cookies_are_joined_and_none_is_skipped(
 ) -> None:
     route = respx_mock.get("/cookies").mock(return_value=httpx.Response(200, json={}))
 
-    await fix_client.with_cookies(sid="abc", theme="dark", trace="t-1")
+    await resolve(fix_client.with_cookies(sid="abc", theme="dark", trace="t-1"))
 
     request = route.calls.last.request
     assert request.headers["cookie"] == "session=abc; theme=dark"
@@ -678,7 +672,7 @@ async def test_explicit_cookie_header_is_preserved_before_cookie_markers(
         return_value=httpx.Response(200, json={})
     )
 
-    await fix_client.cookie_plus_cookie_header(sid="abc", raw="consent=yes")
+    await resolve(fix_client.cookie_plus_cookie_header(sid="abc", raw="consent=yes"))
 
     assert route.calls.last.request.headers["cookie"] == "consent=yes; session=abc"
 
@@ -697,12 +691,12 @@ async def test_explicit_cookie_header_is_preserved_before_cookie_markers(
 )
 async def test_forbidden_cookie_value_raises(fix_client: FixClient, value: str) -> None:
     with pytest.raises(ValueError, match="forbidden"):
-        await fix_client.with_cookie(sid=value)
+        await resolve(fix_client.with_cookie(sid=value))
 
 
 async def test_forbidden_cookie_name_raises(fix_client: FixClient) -> None:
     with pytest.raises(ValueError, match="forbidden"):
-        await fix_client.with_bad_cookie_name(v="ok")
+        await resolve(fix_client.with_bad_cookie_name(v="ok"))
 
 
 async def test_header_alias_overrides_default_header_case_insensitively(
@@ -712,8 +706,10 @@ async def test_header_alias_overrides_default_header_case_insensitively(
         return_value=httpx.Response(204)
     )
 
-    await fix_client.override_content_type(
-        data={"a": 1}, content_type="application/vnd.custom+json"
+    await resolve(
+        fix_client.override_content_type(
+            data={"a": 1}, content_type="application/vnd.custom+json"
+        )
     )
 
     headers = route.calls.last.request.headers
@@ -725,7 +721,7 @@ async def test_cookie_header_survives_alongside_a_json_body(
 ) -> None:
     route = respx_mock.post("/cookie-body").mock(return_value=httpx.Response(204))
 
-    await fix_client.cookie_with_json_body(data={"a": 1}, sid="abc")
+    await resolve(fix_client.cookie_with_json_body(data={"a": 1}, sid="abc"))
 
     request = route.calls.last.request
     assert request.headers["cookie"] == "session=abc"
@@ -738,7 +734,7 @@ async def test_untyped_body_param_is_sent_as_json(
 ) -> None:
     route = respx_mock.post("/untyped").mock(return_value=httpx.Response(204))
 
-    await fix_client.untyped_body({"a": 1})
+    await resolve(fix_client.untyped_body({"a": 1}))
 
     request = route.calls.last.request
     assert request.headers["content-type"] == "application/json"
@@ -750,15 +746,15 @@ async def test_none_return_type_discards_non_empty_body(
 ) -> None:
     respx_mock.get("/ignored").mock(return_value=httpx.Response(200, json={"a": 1}))
 
-    assert await fix_client.ignored_body() is None
+    assert await resolve(fix_client.ignored_body()) is None
 
 
 async def test_header_alias_still_applied_alongside_json_body(
-    respx_mock: respx.MockRouter, base_url: str
+    respx_mock: respx.MockRouter, http: httpx2.Client | httpx2.AsyncClient
 ) -> None:
-    class HeaderBodyClient(APIClient):
+    class HeaderBodyClient(APIClient[ClientT]):
         @post("/items")
-        async def create(
+        def create(
             self,
             data: Annotated[dict, Body()],
             trace: Annotated[str | None, Header(alias="X-Trace")] = None,
@@ -766,8 +762,7 @@ async def test_header_alias_still_applied_alongside_json_body(
 
     route = respx_mock.post("/items").mock(return_value=httpx.Response(200, json={}))
 
-    async with httpx.AsyncClient(base_url=base_url) as http:
-        await HeaderBodyClient(http).create(data={"a": 1}, trace="t-1")
+    await resolve(HeaderBodyClient(http).create(data={"a": 1}, trace="t-1"))
 
     request = route.calls.last.request
     assert request.headers["X-Trace"] == "t-1"

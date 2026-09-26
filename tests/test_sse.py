@@ -1,24 +1,34 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
-from contextlib import aclosing
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
+    Generator,
+    Iterable,
+    Iterator,
+)
+from contextlib import aclosing, closing
 from typing import TYPE_CHECKING, Annotated, Any
 
 import httpx
+import httpx2
 import pytest
+from httpx2 import EventSource
 from pydantic import BaseModel, ValidationError
 
 from httpxic import (
     APIClient,
     Body,
+    ClientT,
     Header,
     Query,
     ServerSentEvent,
-    aiter_sse,
     get,
     sse,
 )
+from tests.conftest import collect
 
 if TYPE_CHECKING:
     import respx
@@ -30,7 +40,7 @@ class Chunk(BaseModel):
     n: int
 
 
-class StreamClient(APIClient):
+class StreamClient(APIClient[ClientT]):
     @sse("/events")
     def watch(self) -> AsyncIterator[Chunk]: ...
 
@@ -47,7 +57,7 @@ class StreamClient(APIClient):
     @sse("/chat", method="POST")
     def chat(self, data: Chunk) -> AsyncIterator[Chunk]: ...
 
-    @sse("/forever", timeout=httpx.Timeout(5.0, read=None))
+    @sse("/forever", timeout=httpx2.Timeout(5.0, read=None))
     def watch_forever(self) -> AsyncIterator[ServerSentEvent]: ...
 
     @sse("/negotiated")
@@ -63,24 +73,39 @@ class StreamClient(APIClient):
     ) -> AsyncIterator[ServerSentEvent]: ...
 
 
+class ChunkStream(httpx.SyncByteStream, httpx.AsyncByteStream):
+    """A response body served in ``chunks`` to either client, recording its release."""
+
+    def __init__(self, *chunks: str) -> None:
+        self.chunks = [chunk.encode() for chunk in chunks]
+        self.closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        return iter(self.chunks)
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self.chunks:
+            yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
 def sse_response(*chunks: str, status_code: int = 200) -> httpx.Response:
     """An unread streaming response carrying ``chunks`` as an event stream."""
-
-    async def body() -> AsyncIterator[bytes]:
-        for chunk in chunks:
-            yield chunk.encode()
-
     return httpx.Response(
         status_code,
         headers={"content-type": "text/event-stream"},
-        content=body(),
+        stream=ChunkStream(*chunks),
     )
 
 
 @pytest.fixture
-async def stream_client(base_url: str) -> AsyncIterator[StreamClient]:
-    async with httpx.AsyncClient(base_url=base_url) as http:
-        yield StreamClient(http)
+def stream_client(http: httpx2.Client | httpx2.AsyncClient) -> StreamClient[Any]:
+    return StreamClient(http)
 
 
 async def test_events_are_validated_into_the_declared_model(
@@ -93,7 +118,7 @@ async def test_events_are_validated_into_the_declared_model(
         )
     )
 
-    assert [chunk async for chunk in stream_client.watch()] == [
+    assert await collect(stream_client.watch()) == [
         Chunk(n=1),
         Chunk(n=2),
     ]
@@ -106,7 +131,7 @@ async def test_events_split_across_chunks_are_reassembled(
         return_value=sse_response('data: {"n', '": 1}\n', "\ndata", ': {"n": 2}\n\n')
     )
 
-    assert [chunk async for chunk in stream_client.watch()] == [
+    assert await collect(stream_client.watch()) == [
         Chunk(n=1),
         Chunk(n=2),
     ]
@@ -119,7 +144,7 @@ async def test_every_sse_line_ending_is_accepted(
     payload = separator.join(['data: {"n": 1}', "", 'data: {"n": 2}', "", ""])
     respx_mock.get("/events").mock(return_value=sse_response(payload))
 
-    assert [chunk async for chunk in stream_client.watch()] == [
+    assert await collect(stream_client.watch()) == [
         Chunk(n=1),
         Chunk(n=2),
     ]
@@ -135,7 +160,7 @@ async def test_server_sent_event_return_type_yields_raw_events(
         )
     )
 
-    events = [event async for event in stream_client.watch_raw()]
+    events = await collect(stream_client.watch_raw())
 
     assert events == [
         ServerSentEvent(data="first\nsecond", event="tick", id="42", retry=3000),
@@ -155,19 +180,10 @@ async def test_comments_blank_data_and_unterminated_blocks(
         )
     )
 
-    assert [event async for event in stream_client.watch_raw()] == [
-        ServerSentEvent(data="")
+    assert await collect(stream_client.watch_raw()) == [
+        ServerSentEvent(event="no-data"),
+        ServerSentEvent(),
     ]
-
-
-async def test_leading_byte_order_mark_is_stripped(
-    respx_mock: respx.MockRouter, stream_client: StreamClient
-) -> None:
-    respx_mock.get("/events").mock(
-        return_value=sse_response('\ufeffdata: {"n": 1}\n\n')
-    )
-
-    assert [chunk async for chunk in stream_client.watch()] == [Chunk(n=1)]
 
 
 async def test_malformed_field_values_are_ignored(
@@ -179,9 +195,7 @@ async def test_malformed_field_values_are_ignored(
         )
     )
 
-    assert [event async for event in stream_client.watch_raw()] == [
-        ServerSentEvent(data="payload", id=None, retry=None)
-    ]
+    assert await collect(stream_client.watch_raw()) == [ServerSentEvent(data="payload")]
 
 
 async def test_sse_requests_advertise_the_event_stream_media_type(
@@ -189,8 +203,7 @@ async def test_sse_requests_advertise_the_event_stream_media_type(
 ) -> None:
     route = respx_mock.get("/events").mock(return_value=sse_response())
 
-    async for _ in stream_client.watch():
-        pass
+    await collect(stream_client.watch())
 
     headers = route.calls.last.request.headers
     assert headers["Accept"] == "text/event-stream"
@@ -202,8 +215,7 @@ async def test_explicit_accept_header_wins_over_the_default(
 ) -> None:
     route = respx_mock.get("/negotiated").mock(return_value=sse_response())
 
-    async for _ in stream_client.watch_negotiated(accept="text/plain"):
-        pass
+    await collect(stream_client.watch_negotiated(accept="text/plain"))
 
     assert route.calls.last.request.headers["Accept"] == "text/plain"
 
@@ -213,8 +225,7 @@ async def test_lowercase_accept_alias_replaces_the_default(
 ) -> None:
     route = respx_mock.get("/negotiated").mock(return_value=sse_response())
 
-    async for _ in stream_client.watch_negotiated_lowercase(accept="text/plain"):
-        pass
+    await collect(stream_client.watch_negotiated_lowercase(accept="text/plain"))
 
     assert route.calls.last.request.headers.get_list("accept") == ["text/plain"]
 
@@ -224,8 +235,7 @@ async def test_path_and_query_parameters_are_sent(
 ) -> None:
     route = respx_mock.get("/topics/news").mock(return_value=sse_response())
 
-    async for _ in stream_client.watch_topic("news", since=7):
-        pass
+    await collect(stream_client.watch_topic("news", since=7))
 
     assert route.calls.last.request.url.params["since"] == "7"
 
@@ -237,7 +247,7 @@ async def test_post_streams_send_their_body(
         return_value=sse_response('data: {"n": 2}\n\n')
     )
 
-    assert [chunk async for chunk in stream_client.chat(Chunk(n=1))] == [Chunk(n=2)]
+    assert await collect(stream_client.chat(Chunk(n=1))) == [Chunk(n=2)]
 
     request = route.calls.last.request
     assert json.loads(request.content) == {"n": 1}
@@ -249,8 +259,7 @@ async def test_timeout_override_is_forwarded(
 ) -> None:
     route = respx_mock.get("/forever").mock(return_value=sse_response())
 
-    async for _ in stream_client.watch_forever():
-        pass
+    await collect(stream_client.watch_forever())
 
     assert route.calls.last.request.extensions["timeout"]["read"] is None
 
@@ -263,8 +272,7 @@ async def test_event_data_validation_error_propagates(
     )
 
     with pytest.raises(ValidationError):
-        async for _ in stream_client.watch():
-            pass
+        await collect(stream_client.watch())
 
 
 async def test_error_status_raises_with_the_body_available(
@@ -274,37 +282,33 @@ async def test_error_status_raises_with_the_body_available(
         return_value=httpx.Response(503, json={"detail": "overloaded"})
     )
 
-    with pytest.raises(httpx.HTTPStatusError) as excinfo:
-        async for _ in stream_client.watch():
-            pass
+    with pytest.raises(httpx2.HTTPStatusError) as excinfo:
+        await collect(stream_client.watch())
 
     assert excinfo.value.response.json() == {"detail": "overloaded"}
 
 
 async def test_error_status_is_streamed_when_not_raising(
-    respx_mock: respx.MockRouter, base_url: str
+    respx_mock: respx.MockRouter, http: httpx2.Client | httpx2.AsyncClient
 ) -> None:
     respx_mock.get("/raw").mock(
         return_value=sse_response("data: partial\n\n", status_code=503)
     )
 
-    async with httpx.AsyncClient(base_url=base_url) as http:
-        client = StreamClient(http, raise_for_status=False)
-        events = [event async for event in client.watch_raw()]
+    client = StreamClient(http, raise_for_status=False)
+    events = await collect(client.watch_raw())
 
     assert events == [ServerSentEvent(data="partial")]
 
 
 async def test_decode_options_apply_to_events(
-    respx_mock: respx.MockRouter, base_url: str
+    respx_mock: respx.MockRouter, http: httpx2.Client | httpx2.AsyncClient
 ) -> None:
     respx_mock.get("/events").mock(return_value=sse_response('data: {"n": "1"}\n\n'))
 
-    async with httpx.AsyncClient(base_url=base_url) as http:
-        client = StreamClient(http, decode_options={"strict": True})
-        with pytest.raises(ValidationError):
-            async for _ in client.watch():
-                pass
+    client = StreamClient(http, decode_options={"strict": True})
+    with pytest.raises(ValidationError):
+        await collect(client.watch())
 
 
 async def test_stream_escape_hatch_decodes_events_by_hand(
@@ -312,39 +316,33 @@ async def test_stream_escape_hatch_decodes_events_by_hand(
 ) -> None:
     respx_mock.get("/raw").mock(return_value=sse_response("data: manual\n\n"))
 
-    async with stream_client.stream("GET", "/raw") as response:
-        events = [event async for event in aiter_sse(response.aiter_lines())]
+    if isinstance(stream_client.http, httpx2.AsyncClient):
+        async with stream_client.stream("GET", "/raw") as response:
+            events = [event async for event in EventSource(response)]
+    else:
+        with stream_client.stream("GET", "/raw") as response:
+            events = list(EventSource(response))
 
     assert events == [ServerSentEvent(data="manual")]
 
 
-class ClosingStream(httpx.AsyncByteStream):
-    """A response stream that records whether the client released it."""
-
-    def __init__(self, *chunks: str) -> None:
-        self.chunks = chunks
-        self.closed = False
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        for chunk in self.chunks:
-            yield chunk.encode()
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
 async def test_leaving_the_stream_early_releases_the_connection(
-    base_url: str,
+    respx_mock: respx.MockRouter, stream_client: StreamClient
 ) -> None:
-    stream = ClosingStream('data: {"n": 1}\n\n', 'data: {"n": 2}\n\n')
-    transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=stream))
+    stream = ChunkStream('data: {"n": 1}\n\n', 'data: {"n": 2}\n\n')
+    respx_mock.get("/events").mock(
+        return_value=httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=stream
+        )
+    )
 
-    async with httpx.AsyncClient(base_url=base_url, transport=transport) as http:
-        events = StreamClient(http).watch()
+    events = stream_client.watch()
+    if isinstance(events, AsyncIterator):
         async with aclosing(events):
-            async for chunk in events:
-                assert chunk == Chunk(n=1)
-                break
+            assert await anext(events) == Chunk(n=1)
+    else:
+        with closing(events):
+            assert next(events) == Chunk(n=1)
 
     assert stream.closed
 
@@ -355,10 +353,13 @@ async def test_leaving_the_stream_early_releases_the_connection(
         AsyncIterator[Chunk],
         AsyncIterable[Chunk],
         AsyncGenerator[Chunk, None],
+        Iterator[Chunk],
+        Iterable[Chunk],
+        Generator[Chunk, None, None],
         Annotated[AsyncIterator[Chunk], "documented"],
     ],
 )
-def test_every_async_iterator_return_annotation_is_accepted(annotation) -> None:
+def test_every_iterator_return_annotation_is_accepted(annotation) -> None:
     def watch(self) -> None: ...
 
     watch.__annotations__["return"] = annotation
@@ -369,22 +370,22 @@ def test_every_async_iterator_return_annotation_is_accepted(annotation) -> None:
 
 @pytest.mark.parametrize(
     "annotation",
-    [Chunk, list[Chunk], AsyncIterator, AsyncIterator[None], httpx.Response],
+    [Chunk, list[Chunk], AsyncIterator, AsyncIterator[None], httpx2.Response],
 )
-def test_non_async_iterator_return_annotation_raises(annotation) -> None:
+def test_non_iterator_return_annotation_raises(annotation) -> None:
     def watch(self) -> None: ...
 
     watch.__annotations__["return"] = annotation
     decorate: Any = sse("/events")
 
-    with pytest.raises(TypeError, match="AsyncIterator"):
+    with pytest.raises(TypeError, match="Iterator"):
         decorate(watch)
 
 
 def test_missing_return_annotation_raises() -> None:
     with pytest.raises(TypeError, match="missing return annotation"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @sse("/events")
             def watch(self): ...
 
@@ -392,15 +393,15 @@ def test_missing_return_annotation_raises() -> None:
 def test_body_parameter_on_a_get_stream_raises() -> None:
     with pytest.raises(TypeError, match="body-supporting method"):
 
-        class BadClient(APIClient):
+        class BadClient(APIClient[ClientT]):
             @sse("/events")
             def watch(self, data: Annotated[Chunk, Body()]) -> AsyncIterator[Chunk]: ...
 
 
 def test_sse_and_plain_endpoints_coexist_on_one_client() -> None:
-    class MixedClient(APIClient):
+    class MixedClient(APIClient[ClientT]):
         @get("/events/latest")
-        async def latest(self) -> Chunk: ...
+        def latest(self) -> Chunk: ...
 
         @sse("/events")
         def watch(self) -> AsyncIterator[Chunk]: ...

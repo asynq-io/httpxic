@@ -1,0 +1,5 @@
+spec: https://petstore3.swagger.io/api/v3/openapi.json
+output: petstore
+class_name: PetstoreClient
+model_options:
+  snake_case_field: true
